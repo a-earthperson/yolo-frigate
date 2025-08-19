@@ -37,18 +37,24 @@ class PredictionSaver:
             prediction = await self.queue.get()
             try:
                 timestamp = datetime.datetime.now().isoformat(timespec="milliseconds").replace(":", "-")
-                labels = "_".join({p.label for p in prediction.predictions.predictions}) if prediction.predictions else "no_labels"
-                filename_base = f"{timestamp}_{labels}"
+                date, time = timestamp.split('T')
+
+                directory = os.path.join(self.output_path, date)
+                if not os.path.exists(directory):
+                    os.makedirs(directory)
+
+                labels = "_".join({f"{p.label}-{round(p.confidence * 100)}" for p in prediction.predictions.predictions}) if prediction.predictions else "no_labels"
+                filename_base = f"{time}_{labels}"
 
                 # Save image
-                image_path = os.path.join(self.output_path, f"{filename_base}.jpg")
+                image_path = os.path.join(directory, f"{filename_base}.jpg")
                 with open(image_path, "wb") as file:
                     file.write(prediction.image)
                 logger.info(f"Image saved to {image_path}")
 
                 # Save predictions as JSON
                 if len(prediction.predictions.predictions) > 0:
-                    json_path = os.path.join(self.output_path, f"{filename_base}.json")
+                    json_path = os.path.join(directory, f"{filename_base}.json")
                     with open(json_path, "w") as file:
                         file.write(prediction.predictions.model_dump_json())
                     logger.info(f"Predictions saved to {json_path}")
