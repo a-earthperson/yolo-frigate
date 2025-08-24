@@ -10,9 +10,10 @@ from prediction import Predictions
 logger = logging.getLogger(__name__)
 
 class PredictionItem:
-    def __init__(self, image: bytes, predictions: Predictions):
+    def __init__(self, image: bytes, predictions: Predictions, forced: bool = False):
         self.image = image
         self.predictions = predictions
+        self.forced = forced
 
 class PredictionSaver:
     def __init__(self, enabled: bool, confidence_expression: float, output_path: str):
@@ -28,7 +29,7 @@ class PredictionSaver:
             logger.debug("Prediction saving is disabled. Skipping save.")
         elif self.queue.full():
             logger.warning("Prediction queue is full. Skipping save.")
-        elif all(not self.confidence_evaluator.evaluate(p.label, p.confidence) for p in prediction.predictions.predictions):
+        elif not prediction.forced and all(not self.confidence_evaluator.evaluate(p.label, p.confidence) for p in prediction.predictions.predictions):
             logger.debug("Prediction confidence below threshold. Skipping save.")
         else:
             await self.queue.put(prediction)
@@ -45,6 +46,8 @@ class PredictionSaver:
                     os.makedirs(directory)
 
                 labels = "_".join({f"{p.label}-{round(p.confidence * 100)}" for p in prediction.predictions.predictions}) if prediction.predictions else "no_labels"
+                if prediction.forced:
+                    labels = f"FORCED_{labels}"
                 filename_base = f"{time}_{labels}"
 
                 # Save image

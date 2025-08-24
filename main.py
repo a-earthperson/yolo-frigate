@@ -73,6 +73,9 @@ prediction_saver = PredictionSaver(enable_save, save_threshold, save_path)
 
 app = FastAPI()
 
+# Add a global variable to track the force save state
+force_save = False
+
 @app.get("/")
 def root():
     logger.debug("Root endpoint accessed.")
@@ -81,6 +84,15 @@ def root():
 @app.get("/health")
 def health():
     return ""
+
+@app.post("/force_save/{state}")
+def set_force_save(state: bool):
+    """
+    Endpoint to enable or disable force save.
+    """
+    force_save = state
+    logger.info(f"Force save set to: {force_save}")
+    return {"force_save": force_save}
 
 @app.post("/detect", response_model=Predictions)
 async def detect_objects(image: Annotated[bytes, File()]):
@@ -96,7 +108,8 @@ async def detect_objects(image: Annotated[bytes, File()]):
         logger.debug(f"Detection completed. Found {len(predictions.predictions)} objects.")
         prediction_item = PredictionItem(
             image=image,
-            predictions=predictions
+            predictions=predictions,
+            forced=force_save
         )
         await prediction_saver.add_prediction(prediction_item)
         return predictions
