@@ -90,6 +90,7 @@ def set_force_save(state: bool):
     """
     Endpoint to enable or disable force save.
     """
+    global force_save
     force_save = state
     logger.info(f"Force save set to: {force_save}")
     return {"force_save": force_save}
