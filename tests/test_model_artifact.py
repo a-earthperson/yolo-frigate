@@ -153,20 +153,29 @@ class TestModelArtifactManager(unittest.TestCase):
                     config, RuntimeProfile("tensorrt", "engine")
                 )
 
-    def test_onnx_export_requires_gpu_device(self):
+    def test_onnx_export_accepts_cpu_device(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             model_path = Path(tmpdir) / "model.pt"
             model_path.write_bytes(b"weights")
+            cache_dir = Path(tmpdir) / "cache"
             config = make_config(
                 runtime="onnx",
                 model_file=str(model_path),
                 device="cpu",
+                model_cache_dir=str(cache_dir),
+            )
+            manager = ModelArtifactManager()
+            ultralytics_module = types.SimpleNamespace(
+                YOLO=FakeYOLO, __version__="8.3.0"
             )
 
-            with self.assertRaises(ValueError):
-                ModelArtifactManager().resolve(
-                    config, RuntimeProfile("onnx", "onnx")
-                )
+            with unittest.mock.patch.dict(
+                sys.modules, {"ultralytics": ultralytics_module}
+            ):
+                resolved = manager.resolve(config, RuntimeProfile("onnx", "onnx"))
+
+        self.assertTrue(str(resolved.path).endswith(".onnx"))
+        self.assertEqual(FakeYOLO.export_calls[-1][1]["device"], "cpu")
 
     def test_openvino_directory_artifact_is_passed_through(self):
         with tempfile.TemporaryDirectory() as tmpdir:

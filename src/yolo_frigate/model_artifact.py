@@ -179,10 +179,6 @@ class ModelArtifactManager:
             raise ValueError(
                 "TensorRT export requires a GPU device such as gpu or gpu:<index>."
             )
-        if runtime_profile.name == "onnx" and not config.device.startswith("gpu"):
-            raise ValueError(
-                "ONNX export requires a GPU device such as gpu or gpu:<index>."
-            )
         if runtime_profile.name == "edgetpu" and platform.machine().lower() not in {
             "x86_64",
             "amd64",
@@ -217,7 +213,10 @@ class ModelArtifactManager:
                 args["workspace"] = config.export_workspace
         if runtime_profile.name == "onnx":
             args["simplify"] = True
-            args["device"] = _normalize_tensorrt_export_device(config.device)
+            if config.device == "cpu":
+                args["device"] = "cpu"
+            else:
+                args["device"] = _normalize_tensorrt_export_device(config.device)
         if runtime_profile.name in {"openvino", "tflite", "edgetpu"}:
             args["device"] = "cpu"
         if config.export_data is not None:

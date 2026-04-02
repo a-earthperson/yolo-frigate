@@ -119,11 +119,17 @@ class TestUltralyticsDetector(unittest.TestCase):
 
         self.assertEqual(FakeYOLO.instances[0].predict_calls[0]["device"], "2")
 
-    def test_onnx_requires_gpu_device(self):
+    def test_onnx_runtime_passes_cpu_device_to_predict(self):
         ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
         with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
-            with self.assertRaises(ValueError):
-                UltralyticsDetector("model.onnx", runtime="onnx", device="cpu")
+            detector = UltralyticsDetector(
+                "model.onnx",
+                runtime="onnx",
+                device="cpu",
+            )
+            detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
+
+        self.assertEqual(FakeYOLO.instances[0].predict_calls[0]["device"], "cpu")
 
     def test_invalid_openvino_device_is_rejected(self):
         ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)

@@ -45,9 +45,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--runtime",
         type=str,
-        default=(
-            os.getenv("YOLO_FRIGATE_RUNTIME") or "auto"
-        ),
+        default=(os.getenv("YOLO_FRIGATE_RUNTIME") or "auto"),
         choices=["auto", "tensorrt", "openvino", "onnx", "tflite", "edgetpu"],
         help="Native runtime profile. Defaults to YOLO_FRIGATE_RUNTIME, else auto.",
     )

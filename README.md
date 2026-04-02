@@ -17,7 +17,7 @@ Each Docker image ships with a fixed `YOLO_FRIGATE_RUNTIME` and the dependencies
 | Variant | Dockerfile | `YOLO_FRIGATE_RUNTIME` | Native artifacts | Typical devices |
 |---------|------------|-------------------|------------------|-----------------|
 | **NVIDIA TensorRT** | [`nvidia-trt.Dockerfile`](nvidia-trt.Dockerfile) | `tensorrt` | `.engine` | NVIDIA: `gpu`, `gpu:0`, … |
-| **NVIDIA ONNX Runtime (GPU)** | [`onnx-gpu.Dockerfile`](onnx-gpu.Dockerfile) | `onnx` | `.onnx` | NVIDIA: `gpu`, `gpu:0`, … |
+| **NVIDIA ONNX Runtime (GPU)** | [`onnx-gpu.Dockerfile`](onnx-gpu.Dockerfile) | `onnx` | `.onnx` | `cpu` (CPU EP); NVIDIA: `gpu`, `gpu:0`, … |
 | **Intel GPU (OpenVINO)** | [`intel-gpu.Dockerfile`](intel-gpu.Dockerfile) | `openvino` | `*_openvino_model/` | CPU; Intel GPU: `gpu`, `gpu:0`, …; NPU where supported |
 | **Coral EdgeTPU (TFLite)** | [`coral-tpu.Dockerfile`](coral-tpu.Dockerfile) | `tflite` | `.tflite` | `cpu`; Coral: `usb`, `pci`, … |
 
@@ -47,6 +47,7 @@ Overrides when running outside Docker:
 
 ```bash
 uv run yolo-frigate --runtime=tensorrt --device=gpu:0 --model_file=/models/model.pt
+uv run yolo-frigate --runtime=onnx --device=cpu --model_file=/models/model.pt
 uv run yolo-frigate --runtime=onnx --device=gpu:0 --model_file=/models/model.pt
 uv run yolo-frigate --runtime=openvino --device=cpu --model_file=/models/model.pt
 uv run yolo-frigate --runtime=tflite --device=cpu --model_file=/models/model.pt
@@ -57,7 +58,7 @@ The installable project is **`yolo-frigate`**; the Python import package is **`y
 
 Pre-exported artifacts can be passed directly to `--model_file`: TensorRT `.engine`, ONNX `.onnx`, OpenVINO `*_openvino_model/`, TFLite / EdgeTPU `.tflite`.
 
-Device strings are runtime-specific (TensorRT / ONNX: `gpu`, `gpu:0`, …; OpenVINO: `cpu`, `gpu`, `npu`, …; TFLite: `cpu`; EdgeTPU: `usb`, `pci`, …). `--runtime` is the only runtime selector; `--label_file` overrides embedded class names when needed.
+Device strings are runtime-specific (TensorRT: `gpu`, `gpu:0`, …; ONNX: `cpu`, `gpu`, `gpu:0`, …; OpenVINO: `cpu`, `gpu`, `npu`, …; TFLite: `cpu`; EdgeTPU: `usb`, `pci`, …). `--runtime` is the only runtime selector; `--label_file` overrides embedded class names when needed.
 
 ## Lazy export and cache
 
