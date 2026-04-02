@@ -161,11 +161,11 @@ class ModelArtifactManager:
         if request.runtime_profile.name == "openvino":
             return _single_match(request.work_dir.glob("*_openvino_model"))
         if request.runtime_profile.name == "edgetpu":
-            return _single_match(request.work_dir.glob("*edgetpu*.tflite"))
+            return _single_match(request.work_dir.rglob("*edgetpu*.tflite"))
         if request.runtime_profile.name == "tflite":
             return _single_match(
                 path
-                for path in request.work_dir.glob("*.tflite")
+                for path in request.work_dir.rglob("*.tflite")
                 if "edgetpu" not in path.name.lower()
             )
         return None

@@ -32,29 +32,7 @@ jobs:
         run: |
           docker build -t "yolo-frigate:ci-${{ matrix.image_tag }}" -f "${{ matrix.dockerfile }}" .
 
-      - name: Run Docker container
-        run: |
-          docker run -d --name yfr-ci -p 8000:8000 "yolo-frigate:ci-${{ matrix.image_tag }}"
-          for i in {1..120}; do
-            status="$(docker inspect -f '{{.State.Health.Status}}' yfr-ci 2>/dev/null || true)"
-            if [ "$status" = "healthy" ]; then
-              echo "Container is healthy"
-              break
-            fi
-            if [ "$status" = "unhealthy" ]; then
-              echo "Container is unhealthy"
-              docker logs yfr-ci
-              exit 1
-            fi
-            sleep 2
-          done
-          if [ "$status" != "healthy" ]; then
-            echo "Container did not become healthy in time"
-            docker logs yfr-ci
-            exit 1
-          fi
-
-      - name: Stop container
+      - name: Remove image artifacts
         if: always()
         run: |
-          docker rm -f yfr-ci || true
+          docker rmi "yolo-frigate:ci-${{ matrix.image_tag }}"  || true

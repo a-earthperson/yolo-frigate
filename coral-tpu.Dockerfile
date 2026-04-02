@@ -9,12 +9,9 @@ https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt
 EOF
 RUN aria2c -j32 -k 1M -i models.list -d models
 
-ARG PYTHON_VERSION="3.11.9"
+FROM python:3.11.9-slim-bookworm
 ARG CPU_ARCHITECTURE="amd64"
 ARG DEBIAN_VERSION="bookworm"
-FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION}
-ARG CPU_ARCHITECTURE
-ARG DEBIAN_VERSION
 ARG LIBEDGETPU_VERSION1="16.0"
 ARG LIBEDGETPU_VERSION2="2.17.1-1"
 ARG LIBEDGETPU_RELEASE_URL="https://github.com/feranick/libedgetpu/releases/download/${LIBEDGETPU_VERSION1}TF${LIBEDGETPU_VERSION2}/libedgetpu1-max_${LIBEDGETPU_VERSION1}tf${LIBEDGETPU_VERSION2}.${DEBIAN_VERSION}_${CPU_ARCHITECTURE}.deb"
@@ -42,17 +39,13 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY --from=model-downloader /downloads/models /models
 
-ARG UID=1000
-ARG GID=1000
-RUN mkdir -p /cache/yolo-frigate /cache/Ultralytics && chown -R "${UID}:${GID}" /cache
+RUN mkdir -p /cache/yolo-frigate /cache/Ultralytics
 
 COPY pyproject.toml uv.lock ./
 COPY src ./src
 
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --system ".[tflite]"
-
-USER ${UID}:${GID}
 
 EXPOSE 8000
 

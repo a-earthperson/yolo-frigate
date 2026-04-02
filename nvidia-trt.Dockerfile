@@ -52,9 +52,6 @@ RUN aria2c -j32 -k 1M -i models.list -d models
 
 FROM ${PYTHON_IMAGE} AS yolo-frigate-trt
 
-COPY --from=yolo-frigate-trt-builder /app/.venv /app/.venv
-COPY --from=model-downloader /downloads/models /models
-
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -76,6 +73,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 RUN mkdir -p /cache/yolo-frigate /cache/Ultralytics
+
+COPY --from=yolo-frigate-trt-builder /app/.venv /app/.venv
+COPY --from=model-downloader /downloads/models /models
 
 EXPOSE 8000
 
