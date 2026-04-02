@@ -48,7 +48,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=(
             os.getenv("YOLO_FRIGATE_RUNTIME") or "auto"
         ),
-        choices=["auto", "tensorrt", "openvino", "tflite", "edgetpu"],
+        choices=["auto", "tensorrt", "openvino", "onnx", "tflite", "edgetpu"],
         help="Native runtime profile. Defaults to YOLO_FRIGATE_RUNTIME, else auto.",
     )
     parser.add_argument(
@@ -61,7 +61,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--model_file",
         type=str,
         required=True,
-        help="Path to a source model (.pt) or runtime artifact (.engine, .tflite, *_openvino_model).",
+        help="Path to a source model (.pt) or runtime artifact (.engine, .onnx, .tflite, *_openvino_model).",
     )
     parser.add_argument(
         "--device",

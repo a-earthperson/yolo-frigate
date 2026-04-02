@@ -21,6 +21,7 @@ class ModelSource:
 RUNTIME_PROFILES = {
     "tensorrt": RuntimeProfile(name="tensorrt", export_format="engine"),
     "openvino": RuntimeProfile(name="openvino", export_format="openvino"),
+    "onnx": RuntimeProfile(name="onnx", export_format="onnx"),
     "tflite": RuntimeProfile(name="tflite", export_format="tflite"),
     "edgetpu": RuntimeProfile(name="edgetpu", export_format="edgetpu"),
 }
@@ -36,6 +37,8 @@ def describe_model_source(model_file: str) -> ModelSource:
         return ModelSource(path=path, kind="checkpoint")
     if suffix == ".engine":
         return ModelSource(path=path, kind="tensorrt")
+    if suffix == ".onnx":
+        return ModelSource(path=path, kind="onnx")
     if suffix == ".tflite":
         if "edgetpu" in lower_name:
             return ModelSource(path=path, kind="edgetpu")

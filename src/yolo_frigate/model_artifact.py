@@ -168,6 +168,8 @@ class ModelArtifactManager:
                 for path in request.work_dir.rglob("*.tflite")
                 if "edgetpu" not in path.name.lower()
             )
+        if request.runtime_profile.name == "onnx":
+            return _single_match(request.work_dir.glob("*.onnx"))
         return None
 
     def _validate_export_config(
@@ -176,6 +178,10 @@ class ModelArtifactManager:
         if runtime_profile.name == "tensorrt" and not config.device.startswith("gpu"):
             raise ValueError(
                 "TensorRT export requires a GPU device such as gpu or gpu:<index>."
+            )
+        if runtime_profile.name == "onnx" and not config.device.startswith("gpu"):
+            raise ValueError(
+                "ONNX export requires a GPU device such as gpu or gpu:<index>."
             )
         if runtime_profile.name == "edgetpu" and platform.machine().lower() not in {
             "x86_64",
@@ -200,15 +206,18 @@ class ModelArtifactManager:
         }
         if runtime_profile.name != "edgetpu":
             args["half"] = config.export_half
-        if runtime_profile.name in {"tensorrt", "openvino", "tflite"}:
+        if runtime_profile.name in {"tensorrt", "openvino", "tflite", "onnx"}:
             args["int8"] = config.export_int8
-        if runtime_profile.name in {"tensorrt", "openvino"}:
+        if runtime_profile.name in {"tensorrt", "openvino", "onnx"}:
             args["dynamic"] = config.export_dynamic
         if runtime_profile.name == "tensorrt":
             args["simplify"] = True
             args["device"] = _normalize_tensorrt_export_device(config.device)
             if config.export_workspace is not None:
                 args["workspace"] = config.export_workspace
+        if runtime_profile.name == "onnx":
+            args["simplify"] = True
+            args["device"] = _normalize_tensorrt_export_device(config.device)
         if runtime_profile.name in {"openvino", "tflite", "edgetpu"}:
             args["device"] = "cpu"
         if config.export_data is not None:

@@ -21,6 +21,8 @@ jobs:
             image_tag: intel-gpu
           - dockerfile: coral-tpu.Dockerfile
             image_tag: coral-tpu
+          - dockerfile: onnx-gpu.Dockerfile
+            image_tag: onnx-gpu
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

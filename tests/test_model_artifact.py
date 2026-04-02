@@ -59,6 +59,9 @@ class FakeYOLO:
             artifact.mkdir()
             (artifact / "model.xml").write_text("<xml />", encoding="utf-8")
             (artifact / "model.bin").write_bytes(b"bin")
+        elif fmt == "onnx":
+            artifact = parent / f"{stem}.onnx"
+            artifact.write_bytes(b"onnx")
         elif fmt == "edgetpu":
             artifact = parent / f"{stem}_full_integer_quant_edgetpu.tflite"
             artifact.write_text("edgetpu", encoding="utf-8")
@@ -148,6 +151,21 @@ class TestModelArtifactManager(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ModelArtifactManager().resolve(
                     config, RuntimeProfile("tensorrt", "engine")
+                )
+
+    def test_onnx_export_requires_gpu_device(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_path = Path(tmpdir) / "model.pt"
+            model_path.write_bytes(b"weights")
+            config = make_config(
+                runtime="onnx",
+                model_file=str(model_path),
+                device="cpu",
+            )
+
+            with self.assertRaises(ValueError):
+                ModelArtifactManager().resolve(
+                    config, RuntimeProfile("onnx", "onnx")
                 )
 
     def test_openvino_directory_artifact_is_passed_through(self):

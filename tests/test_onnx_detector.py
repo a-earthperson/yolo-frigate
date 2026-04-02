@@ -107,6 +107,24 @@ class TestUltralyticsDetector(unittest.TestCase):
             with self.assertRaises(ValueError):
                 UltralyticsDetector("model.engine", runtime="tensorrt", device="cpu")
 
+    def test_onnx_runtime_normalizes_gpu_device(self):
+        ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
+        with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
+            detector = UltralyticsDetector(
+                "model.onnx",
+                runtime="onnx",
+                device="gpu:2",
+            )
+            detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
+
+        self.assertEqual(FakeYOLO.instances[0].predict_calls[0]["device"], "2")
+
+    def test_onnx_requires_gpu_device(self):
+        ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
+        with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
+            with self.assertRaises(ValueError):
+                UltralyticsDetector("model.onnx", runtime="onnx", device="cpu")
+
     def test_invalid_openvino_device_is_rejected(self):
         ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
         with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):

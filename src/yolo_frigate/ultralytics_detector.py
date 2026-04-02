@@ -57,6 +57,8 @@ class UltralyticsDetector:
     def _predict_device(self) -> str | None:
         if self.runtime == "tensorrt":
             return _normalize_tensorrt_predict_device(self.requested_device)
+        if self.runtime == "onnx":
+            return _normalize_onnx_predict_device(self.requested_device)
         if self.runtime == "openvino":
             return _normalize_openvino_predict_device(self.requested_device)
         return None
@@ -93,6 +95,23 @@ def _to_list(value: Any) -> list[Any]:
     if hasattr(value, "tolist"):
         return value.tolist()
     return list(value)
+
+
+def _normalize_onnx_predict_device(device: str) -> str:
+    if device == "cpu":
+        return "cpu"
+    if device == "gpu":
+        return "0"
+    if device.startswith("gpu:"):
+        index = device.split(":", maxsplit=1)[1]
+        if not index.isdigit():
+            raise ValueError(
+                f"Invalid GPU device '{device}'. Expected gpu or gpu:<index>."
+            )
+        return index
+    raise ValueError(
+        f"Invalid ONNX device '{device}'. Supported values are cpu, gpu, or gpu:<index>."
+    )
 
 
 def _normalize_tensorrt_predict_device(device: str) -> str:

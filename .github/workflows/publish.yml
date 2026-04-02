@@ -87,6 +87,8 @@ jobs:
             image_suffix: -intel-gpu
           - dockerfile: coral-tpu.Dockerfile
             image_suffix: -coral-tpu
+          - dockerfile: onnx-gpu.Dockerfile
+            image_suffix: -onnx-gpu
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

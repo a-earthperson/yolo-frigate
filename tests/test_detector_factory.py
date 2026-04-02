@@ -54,9 +54,11 @@ class TestDetectorFactory(unittest.TestCase):
             resolve_runtime(make_config(model_file="model_openvino_model")), "openvino"
         )
 
-    def test_onnx_artifacts_are_rejected(self):
-        with self.assertRaises(ValueError):
-            resolve_runtime(make_config(model_file="model.onnx"))
+    def test_onnx_artifacts_resolve_runtime(self):
+        self.assertEqual(
+            resolve_runtime(make_config(model_file="model.onnx")),
+            "onnx",
+        )
 
     def test_tflite_runtime_switches_to_edgetpu_for_non_cpu_devices(self):
         self.assertEqual(

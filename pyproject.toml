@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yolo-frigate"
-version = "0.1.9"
+version = "0.2.0"
 description = "yolo-frigate: DeepStack-shaped REST API for YOLO object detection with lazy runtime-native export"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,6 +34,12 @@ tflite = [
 openvino = [
     "openvino",
     "ultralytics; platform_system == 'Linux'",
+]
+onnx-gpu = [
+    "ultralytics; platform_system == 'Linux'",
+    "onnx>=1.12.0,<2.0.0; platform_system == 'Linux'",
+    "onnxslim>=0.1.71; platform_system == 'Linux'",
+    "onnxruntime-gpu; platform_system == 'Linux'",
 ]
 
 [project.urls]

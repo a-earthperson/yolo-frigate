@@ -2,13 +2,13 @@
 
 Source: **[github.com/a-earthperson/yolo-frigate](https://github.com/a-earthperson/yolo-frigate)**.
 
-HTTP object detection for **NVR-style stacks**—most often [Frigate](https://github.com/blakeblackshear/frigate) or anything else that speaks a **DeepStack-compatible** multipart `POST /detect` API. The service wraps Ultralytics YOLO models, optionally **lazy-exporting** Ultralytics `.pt` checkpoints into each image’s native runtime (TensorRT, OpenVINO, TFLite, EdgeTPU) on first use.
+HTTP object detection for **NVR-style stacks**—most often [Frigate](https://github.com/blakeblackshear/frigate) or anything else that speaks a **DeepStack-compatible** multipart `POST /detect` API. The service wraps Ultralytics YOLO models, optionally **lazy-exporting** Ultralytics `.pt` checkpoints into each image’s native runtime (TensorRT, OpenVINO, TFLite, EdgeTPU, ONNX) on first use.
 
 Typical deployments:
 
-- One **GPU-class** container per inference node (NVIDIA TensorRT, Intel iGPU via OpenVINO, Coral EdgeTPU via TFLite, and so on).
+- One **GPU-class** container per inference node (NVIDIA TensorRT or ONNX Runtime, Intel iGPU via OpenVINO, Coral EdgeTPU via TFLite, and so on).
 - Shared **read-only model trees** and **writable export caches** (bind mounts, named volumes, or NFS when workers are spread across machines).
-- **Orchestrator placement** so TensorRT lands on NVIDIA hosts and OpenVINO on Intel-GPU hosts—Compose on a single box, Swarm/Kubernetes when models and cache live on shared storage.
+- **Orchestrator placement** so NVIDIA-class images (TensorRT, ONNX GPU) land on GPU hosts and OpenVINO on Intel-GPU hosts—Compose on a single box, Swarm/Kubernetes when models and cache live on shared storage.
 
 ## Runtime images
 
@@ -17,12 +17,14 @@ Each Docker image ships with a fixed `YOLO_FRIGATE_RUNTIME` and the dependencies
 | Variant | Dockerfile | `YOLO_FRIGATE_RUNTIME` | Native artifacts | Typical devices |
 |---------|------------|-------------------|------------------|-----------------|
 | **NVIDIA TensorRT** | [`nvidia-trt.Dockerfile`](nvidia-trt.Dockerfile) | `tensorrt` | `.engine` | NVIDIA: `gpu`, `gpu:0`, … |
+| **NVIDIA ONNX Runtime (GPU)** | [`onnx-gpu.Dockerfile`](onnx-gpu.Dockerfile) | `onnx` | `.onnx` | NVIDIA: `gpu`, `gpu:0`, … |
 | **Intel GPU (OpenVINO)** | [`intel-gpu.Dockerfile`](intel-gpu.Dockerfile) | `openvino` | `*_openvino_model/` | CPU; Intel GPU: `gpu`, `gpu:0`, …; NPU where supported |
 | **Coral EdgeTPU (TFLite)** | [`coral-tpu.Dockerfile`](coral-tpu.Dockerfile) | `tflite` | `.tflite` | `cpu`; Coral: `usb`, `pci`, … |
 
-Release builds publish three images from [`.github/workflows/publish.yml`](.github/workflows/publish.yml). The **image name** is the GitHub `owner/repository` name plus a **variant suffix** that matches the Dockerfile stem (GHCR normalizes names to lowercase):
+Release builds publish four images from [`.github/workflows/publish.yml`](.github/workflows/publish.yml). The **image name** is the GitHub `owner/repository` name plus a **variant suffix** that matches the Dockerfile stem (GHCR normalizes names to lowercase):
 
 - `ghcr.io/a-earthperson/yolo-frigate-nvidia-trt` — from `nvidia-trt.Dockerfile`
+- `ghcr.io/a-earthperson/yolo-frigate-onnx-gpu` — from `onnx-gpu.Dockerfile`
 - `ghcr.io/a-earthperson/yolo-frigate-intel-gpu` — from `intel-gpu.Dockerfile`
 - `ghcr.io/a-earthperson/yolo-frigate-coral-tpu` — from `coral-tpu.Dockerfile`
 
@@ -45,6 +47,7 @@ Overrides when running outside Docker:
 
 ```bash
 uv run yolo-frigate --runtime=tensorrt --device=gpu:0 --model_file=/models/model.pt
+uv run yolo-frigate --runtime=onnx --device=gpu:0 --model_file=/models/model.pt
 uv run yolo-frigate --runtime=openvino --device=cpu --model_file=/models/model.pt
 uv run yolo-frigate --runtime=tflite --device=cpu --model_file=/models/model.pt
 uv run yolo-frigate --runtime=edgetpu --device=pci --model_file=/models/model.pt
@@ -52,9 +55,9 @@ uv run yolo-frigate --runtime=edgetpu --device=pci --model_file=/models/model.pt
 
 The installable project is **`yolo-frigate`**; the Python import package is **`yolo_frigate`** (for example `python -m yolo_frigate`).
 
-Pre-exported artifacts can be passed directly to `--model_file`: TensorRT `.engine`, OpenVINO `*_openvino_model/`, TFLite / EdgeTPU `.tflite`.
+Pre-exported artifacts can be passed directly to `--model_file`: TensorRT `.engine`, ONNX `.onnx`, OpenVINO `*_openvino_model/`, TFLite / EdgeTPU `.tflite`.
 
-Device strings are runtime-specific (TensorRT: `gpu`, `gpu:0`, …; OpenVINO: `cpu`, `gpu`, `npu`, …; TFLite: `cpu`; EdgeTPU: `usb`, `pci`, …). `--runtime` is the only runtime selector; `--label_file` overrides embedded class names when needed.
+Device strings are runtime-specific (TensorRT / ONNX: `gpu`, `gpu:0`, …; OpenVINO: `cpu`, `gpu`, `npu`, …; TFLite: `cpu`; EdgeTPU: `usb`, `pci`, …). `--runtime` is the only runtime selector; `--label_file` overrides embedded class names when needed.
 
 ## Lazy export and cache
 
@@ -84,7 +87,7 @@ Common export flags:
 
 - **`/models`** — readable tree with checkpoints or pre-exported artifacts and optional `labelmap.txt` (or pass `--label_file`).
 - **`/cache`** — writable export cache (omit only if you never lazy-export or you redirect `YOLO_FRIGATE_MODEL_CACHE_DIR` elsewhere).
-- **Devices** — NVIDIA Container Toolkit + GPU reservation for TensorRT; `/dev/dri` (and often `video`/`render` groups) for Intel GPU OpenVINO; Coral device nodes for EdgeTPU.
+- **Devices** — NVIDIA Container Toolkit + GPU reservation for TensorRT and ONNX GPU; `/dev/dri` (and often `video`/`render` groups) for Intel GPU OpenVINO; Coral device nodes for EdgeTPU.
 - **Shared memory** — large `tmpfs` on `/dev/shm` can help some workloads when memory pressure appears during export or batching.
 
 ### Docker Compose (single host)
@@ -111,6 +114,8 @@ services:
       - "--export_dynamic"
     gpus: all
 ```
+
+The ONNX GPU image (`yolo-frigate-onnx-gpu`) uses the same NVIDIA + `gpus` pattern; runtime is fixed to `onnx` in the Dockerfile.
 
 For **Swarm**, use GPU reservations on `deploy.resources` instead of `gpus: all` (Compose ignores `deploy` on non-Swarm setups).
 
@@ -177,7 +182,7 @@ Pattern:
 
 - **Overlay network** attached to Frigate and detector services so `http://<service>:8000/detect` resolves cluster-wide.
 - **Named volumes** backed by NFS for `/models` and `/cache` so exports done on one node are visible to others (same cache key → same artifact).
-- **Placement constraints** so TensorRT runs only on GPU-labeled nodes and OpenVINO on Intel-GPU-labeled nodes.
+- **Placement constraints** so NVIDIA GPU images (TensorRT, ONNX GPU) run only on GPU-labeled nodes and OpenVINO on Intel-GPU-labeled nodes.
 - **Optional** `cap_add: [CAP_PERFMON]` when you want perf counters on Intel stacks; **NVIDIA** stacks often set `NVIDIA_VISIBLE_DEVICES` / `NVIDIA_DRIVER_CAPABILITIES` for full GPU feature exposure inside the container.
 
 Illustrative `stack.yml` (replace NFS address, paths, images, and labels with yours):
@@ -308,6 +313,13 @@ docker run -it --rm -v .:/models ultralytics/ultralytics:latest \
   yolo export model=/models/<name>.pt format=openvino
 ```
 
+### ONNX
+
+```bash
+docker run -it --rm -v .:/models ultralytics/ultralytics:latest \
+  yolo export model=/models/<name>.pt format=onnx
+```
+
 ### TFLite
 
 ```bash
@@ -322,7 +334,7 @@ docker run -it --rm -v .:/models ultralytics/ultralytics:latest-cpu \
   yolo export model=/models/<name>.pt format=edgetpu
 ```
 
-You can pass resulting `.engine`, `*_openvino_model/`, or `.tflite` paths directly to `--model_file`.
+You can pass resulting `.engine`, `.onnx`, `*_openvino_model/`, or `.tflite` paths directly to `--model_file`.
 
 ## Development
 
@@ -339,12 +351,13 @@ Optional inference extras (install only what you need locally):
 uv sync --group dev --extra tflite
 uv sync --group dev --extra tensorrt
 uv sync --group dev --extra openvino
+uv sync --group dev --extra onnx-gpu
 ```
 
 Notes:
 
 - Runtime extras are primarily intended for Linux environments that mirror the Docker images.
-- Lazy export depends on `ultralytics`; TFLite export additionally needs TensorFlow, and native OpenVINO export needs `openvino`.
+- Lazy export depends on `ultralytics`; TFLite export additionally needs TensorFlow, native OpenVINO export needs `openvino`, and the ONNX GPU image uses the `onnx-gpu` extra (`onnxruntime-gpu`).
 
 Format and lint:
 
