@@ -31,8 +31,3 @@ jobs:
       - name: Build Docker image
         run: |
           docker build -t "yolo-frigate:ci-${{ matrix.image_tag }}" -f "${{ matrix.dockerfile }}" .
-
-      - name: Remove image artifacts
-        if: always()
-        run: |
-          docker rmi "yolo-frigate:ci-${{ matrix.image_tag }}"  || true
