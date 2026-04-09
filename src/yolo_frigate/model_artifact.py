@@ -19,7 +19,8 @@ from yolo_frigate.runtime_profile import (
 )
 from yolo_frigate.ultralytics_support import (
     get_ultralytics_version,
-    import_ultralytics_yolo,
+    import_ultralytics_yoloe,
+    resolve_ultralytics_checkpoint,
 )
 
 
@@ -37,13 +38,18 @@ class ExportRequest:
     manifest_path: Path
     source: ModelSource
     runtime_profile: RuntimeProfile
+    class_names: tuple[str, ...]
+    hardware: dict[str, str | None]
     export_args: dict[str, Any]
     source_sha256: str
 
 
 class ModelArtifactManager:
     def resolve(
-        self, config: AppConfig, runtime_profile: RuntimeProfile
+        self,
+        config: AppConfig,
+        runtime_profile: RuntimeProfile,
+        class_names: list[str] | None = None,
     ) -> ResolvedModelArtifact:
         source = describe_model_source(config.model_file)
         if source.kind != "checkpoint":
@@ -52,7 +58,9 @@ class ModelArtifactManager:
                 cached=False,
             )
 
-        request = self._build_export_request(config, runtime_profile, source)
+        request = self._build_export_request(
+            config, runtime_profile, source, class_names
+        )
         artifact_path = self._ensure_exported(request)
         return ResolvedModelArtifact(
             path=str(artifact_path),
@@ -64,25 +72,27 @@ class ModelArtifactManager:
         config: AppConfig,
         runtime_profile: RuntimeProfile,
         source: ModelSource,
+        class_names: list[str] | None,
     ) -> ExportRequest:
         self._validate_export_config(config, runtime_profile)
 
-        source_path = source.path.expanduser().resolve()
-        if not source_path.is_file():
-            raise FileNotFoundError(f"Model source '{source_path}' does not exist.")
+        source_path = self._resolve_checkpoint_source(source)
 
         resolved_source = ModelSource(
             path=source_path,
             kind=source.kind,
         )
+        resolved_class_names = tuple(class_names or ())
         source_sha256 = _sha256_file(source_path)
         export_args = self._build_export_args(config, runtime_profile)
+        hardware = self._hardware_fingerprint(runtime_profile.name, config.device)
         payload = {
             "source_sha256": source_sha256,
             "runtime": runtime_profile.name,
             "format": runtime_profile.export_format,
+            "class_names": resolved_class_names,
             "export_args": export_args,
-            "hardware": self._hardware_fingerprint(runtime_profile.name, config.device),
+            "hardware": hardware,
             "ultralytics_version": get_ultralytics_version(),
         }
         cache_key = hashlib.sha256(
@@ -96,9 +106,21 @@ class ModelArtifactManager:
             manifest_path=cache_root / "manifest.json",
             source=resolved_source,
             runtime_profile=runtime_profile,
+            class_names=resolved_class_names,
+            hardware=hardware,
             export_args=export_args,
             source_sha256=source_sha256,
         )
+
+    def _resolve_checkpoint_source(self, source: ModelSource) -> Path:
+        if source.kind != "checkpoint":
+            return source.path.expanduser().resolve()
+
+        source_path = source.path.expanduser()
+        if source_path.is_file():
+            return source_path.resolve()
+
+        return resolve_ultralytics_checkpoint(str(source.path))
 
     def _ensure_exported(self, request: ExportRequest) -> Path:
         request.cache_root.mkdir(parents=True, exist_ok=True)
@@ -127,6 +149,8 @@ class ModelArtifactManager:
                         "artifact_path": relative_artifact_path.as_posix(),
                         "source_model": str(request.source.path),
                         "source_sha256": request.source_sha256,
+                        "class_names": list(request.class_names),
+                        "hardware": request.hardware,
                         "export_args": request.export_args,
                         "ultralytics_version": get_ultralytics_version(),
                     },
@@ -144,8 +168,10 @@ class ModelArtifactManager:
         return json.loads(manifest_path.read_text(encoding="utf-8"))
 
     def _export_artifact(self, request: ExportRequest, staged_source: Path) -> Path:
-        yolo_cls = import_ultralytics_yolo()
+        yolo_cls = import_ultralytics_yoloe()
         model = yolo_cls(str(staged_source))
+        if request.class_names:
+            model.set_classes(list(request.class_names))
         model.export(**request.export_args)
 
         artifact_path = self._find_export_artifact(request)
@@ -226,12 +252,16 @@ class ModelArtifactManager:
         return args
 
     def _hardware_fingerprint(self, runtime: str, device: str) -> dict[str, str | None]:
+        gpu_identity = _resolve_gpu_identity(device)
         return {
             "runtime": runtime,
             "requested_device": device,
             "machine": platform.machine(),
             "system": platform.system(),
+            "cuda_visible_devices": os.getenv("CUDA_VISIBLE_DEVICES"),
             "nvidia_visible_devices": os.getenv("NVIDIA_VISIBLE_DEVICES"),
+            "gpu_name": gpu_identity["name"],
+            "gpu_compute_capability": gpu_identity["compute_capability"],
         }
 
 
@@ -274,3 +304,58 @@ def _normalize_tensorrt_export_device(device: str) -> str:
     raise ValueError(
         f"TensorRT export requires gpu or gpu:<index>, received '{device}'."
     )
+
+
+def _resolve_gpu_identity(device: str) -> dict[str, str | None]:
+    gpu_index = _normalize_gpu_lookup_index(device)
+    if gpu_index is None:
+        return {"name": None, "compute_capability": None}
+
+    try:
+        import torch
+    except ImportError:
+        return {"name": None, "compute_capability": None}
+
+    cuda = getattr(torch, "cuda", None)
+    if cuda is None:
+        return {"name": None, "compute_capability": None}
+
+    try:
+        if not cuda.is_available():
+            return {"name": None, "compute_capability": None}
+    except Exception:
+        return {"name": None, "compute_capability": None}
+
+    try:
+        if gpu_index >= cuda.device_count():
+            return {"name": None, "compute_capability": None}
+    except Exception:
+        return {"name": None, "compute_capability": None}
+
+    name: str | None = None
+    compute_capability: str | None = None
+    try:
+        name = str(cuda.get_device_name(gpu_index))
+    except Exception:
+        pass
+    try:
+        capability = cuda.get_device_capability(gpu_index)
+        if len(capability) == 2:
+            compute_capability = f"{capability[0]}.{capability[1]}"
+    except Exception:
+        pass
+    return {
+        "name": name,
+        "compute_capability": compute_capability,
+    }
+
+
+def _normalize_gpu_lookup_index(device: str) -> int | None:
+    if device == "gpu":
+        return 0
+    if not device.startswith("gpu:"):
+        return None
+    index = device.split(":", maxsplit=1)[1]
+    if not index.isdigit():
+        return None
+    return int(index)

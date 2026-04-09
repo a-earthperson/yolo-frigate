@@ -21,13 +21,18 @@ class FakeResult:
         self.names = {0: "person", 1: "dog"}
 
 
-class FakeYOLO:
+class FakeYOLOE:
     instances = []
 
     def __init__(self, model_file):
         self.model_file = model_file
         self.predict_calls = []
-        FakeYOLO.instances.append(self)
+        self.val_calls = 0
+        FakeYOLOE.instances.append(self)
+
+    def val(self):
+        self.val_calls += 1
+        return object()
 
     def predict(self, **kwargs):
         self.predict_calls.append(kwargs)
@@ -36,10 +41,10 @@ class FakeYOLO:
 
 class TestUltralyticsDetector(unittest.TestCase):
     def tearDown(self):
-        FakeYOLO.instances.clear()
+        FakeYOLOE.instances.clear()
 
     def test_detect_maps_results_into_contract(self):
-        ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
+        ultralytics_module = types.SimpleNamespace(YOLOE=FakeYOLOE)
         with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
             detector = UltralyticsDetector(
                 "model.engine",
@@ -50,10 +55,11 @@ class TestUltralyticsDetector(unittest.TestCase):
             )
             predictions = detector.detect(np.zeros((8, 8, 3), dtype=np.uint8))
 
-        self.assertEqual(FakeYOLO.instances[0].model_file, "model.engine")
-        self.assertEqual(FakeYOLO.instances[0].predict_calls[0]["device"], "1")
-        self.assertAlmostEqual(FakeYOLO.instances[0].predict_calls[0]["conf"], 0.4)
-        self.assertAlmostEqual(FakeYOLO.instances[0].predict_calls[0]["iou"], 0.5)
+        self.assertEqual(FakeYOLOE.instances[0].model_file, "model.engine")
+        self.assertEqual(FakeYOLOE.instances[0].predict_calls[0]["device"], "1")
+        self.assertAlmostEqual(FakeYOLOE.instances[0].predict_calls[0]["conf"], 0.4)
+        self.assertAlmostEqual(FakeYOLOE.instances[0].predict_calls[0]["iou"], 0.5)
+        self.assertEqual(FakeYOLOE.instances[0].val_calls, 1)
         self.assertEqual(len(predictions.predictions), 1)
         self.assertEqual(predictions.predictions[0].label, "dog")
         self.assertAlmostEqual(predictions.predictions[0].confidence, 0.85, places=6)
@@ -63,22 +69,22 @@ class TestUltralyticsDetector(unittest.TestCase):
         self.assertEqual(predictions.predictions[0].x_max, 30.0)
         self.assertTrue(predictions.success)
 
-    def test_explicit_labels_override_result_names(self):
-        ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
+    def test_explicit_class_names_override_result_names(self):
+        ultralytics_module = types.SimpleNamespace(YOLOE=FakeYOLOE)
         with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
             detector = UltralyticsDetector(
                 "model.tflite",
                 runtime="tflite",
-                labels={1: "vehicle"},
+                class_names=["person", "vehicle"],
                 device="cpu",
             )
             predictions = detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
 
-        self.assertNotIn("device", FakeYOLO.instances[0].predict_calls[0])
+        self.assertNotIn("device", FakeYOLOE.instances[0].predict_calls[0])
         self.assertEqual(predictions.predictions[0].label, "vehicle")
 
     def test_openvino_runtime_normalizes_device(self):
-        ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
+        ultralytics_module = types.SimpleNamespace(YOLOE=FakeYOLOE)
         with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
             detector = UltralyticsDetector(
                 "model_openvino_model",
@@ -87,10 +93,10 @@ class TestUltralyticsDetector(unittest.TestCase):
             )
             detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
 
-        self.assertEqual(FakeYOLO.instances[0].predict_calls[0]["device"], "intel:gpu")
+        self.assertEqual(FakeYOLOE.instances[0].predict_calls[0]["device"], "intel:gpu")
 
     def test_openvino_runtime_normalizes_cpu_device(self):
-        ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
+        ultralytics_module = types.SimpleNamespace(YOLOE=FakeYOLOE)
         with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
             detector = UltralyticsDetector(
                 "model_openvino_model",
@@ -99,10 +105,10 @@ class TestUltralyticsDetector(unittest.TestCase):
             )
             detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
 
-        self.assertEqual(FakeYOLO.instances[0].predict_calls[0]["device"], "intel:cpu")
+        self.assertEqual(FakeYOLOE.instances[0].predict_calls[0]["device"], "intel:cpu")
 
     def test_tflite_runtime_does_not_force_predict_device(self):
-        ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
+        ultralytics_module = types.SimpleNamespace(YOLOE=FakeYOLOE)
         with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
             detector = UltralyticsDetector(
                 "model.tflite",
@@ -111,16 +117,16 @@ class TestUltralyticsDetector(unittest.TestCase):
             )
             detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
 
-        self.assertNotIn("device", FakeYOLO.instances[0].predict_calls[0])
+        self.assertNotIn("device", FakeYOLOE.instances[0].predict_calls[0])
 
     def test_tensor_rt_engine_requires_gpu_device(self):
-        ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
+        ultralytics_module = types.SimpleNamespace(YOLOE=FakeYOLOE)
         with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
             with self.assertRaises(ValueError):
                 UltralyticsDetector("model.engine", runtime="tensorrt", device="cpu")
 
     def test_onnx_runtime_normalizes_gpu_device(self):
-        ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
+        ultralytics_module = types.SimpleNamespace(YOLOE=FakeYOLOE)
         with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
             detector = UltralyticsDetector(
                 "model.onnx",
@@ -129,10 +135,10 @@ class TestUltralyticsDetector(unittest.TestCase):
             )
             detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
 
-        self.assertEqual(FakeYOLO.instances[0].predict_calls[0]["device"], "2")
+        self.assertEqual(FakeYOLOE.instances[0].predict_calls[0]["device"], "2")
 
     def test_onnx_runtime_passes_cpu_device_to_predict(self):
-        ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
+        ultralytics_module = types.SimpleNamespace(YOLOE=FakeYOLOE)
         with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
             detector = UltralyticsDetector(
                 "model.onnx",
@@ -141,10 +147,10 @@ class TestUltralyticsDetector(unittest.TestCase):
             )
             detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
 
-        self.assertEqual(FakeYOLO.instances[0].predict_calls[0]["device"], "cpu")
+        self.assertEqual(FakeYOLOE.instances[0].predict_calls[0]["device"], "cpu")
 
     def test_invalid_openvino_device_is_rejected(self):
-        ultralytics_module = types.SimpleNamespace(YOLO=FakeYOLO)
+        ultralytics_module = types.SimpleNamespace(YOLOE=FakeYOLOE)
         with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
             detector = UltralyticsDetector(
                 "model_openvino_model",

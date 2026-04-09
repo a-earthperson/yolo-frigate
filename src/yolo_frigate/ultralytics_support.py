@@ -5,15 +5,35 @@ import tempfile
 from pathlib import Path
 
 
-def import_ultralytics_yolo():
+def import_ultralytics_yoloe():
     _prepare_ultralytics_environment()
     try:
-        from ultralytics import YOLO
+        from ultralytics import YOLOE
     except ImportError as exc:
         raise RuntimeError(
-            "Ultralytics is required for lazy export and runtime-native inference."
+            "Ultralytics with YOLOE support is required for open-vocabulary export and inference."
         ) from exc
-    return YOLO
+    return YOLOE
+
+
+def resolve_ultralytics_checkpoint(model: str) -> Path:
+    resolved = Path(model).expanduser()
+    if resolved.is_file():
+        return resolved.resolve()
+
+    yoloe = import_ultralytics_yoloe()(model)
+    ckpt_path = getattr(yoloe, "ckpt_path", None)
+    if not ckpt_path:
+        raise RuntimeError(
+            f"Ultralytics did not expose a checkpoint path after loading '{model}'."
+        )
+
+    checkpoint = Path(ckpt_path).expanduser()
+    if not checkpoint.is_file():
+        raise FileNotFoundError(
+            f"Ultralytics reported checkpoint '{checkpoint}' for '{model}', but it does not exist."
+        )
+    return checkpoint.resolve()
 
 
 def get_ultralytics_version() -> str | None:

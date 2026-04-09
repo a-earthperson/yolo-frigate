@@ -40,8 +40,8 @@ class FakeArtifactManager:
         self.resolved = resolved
         self.calls = []
 
-    def resolve(self, config, runtime_profile):
-        self.calls.append((config, runtime_profile.name))
+    def resolve(self, config, runtime_profile, class_names=None):
+        self.calls.append((config, runtime_profile.name, class_names))
         return self.resolved
 
 
@@ -77,7 +77,7 @@ class TestDetectorFactory(unittest.TestCase):
         with self.assertRaises(ValueError):
             resolve_runtime(make_config(runtime="openvino", model_file="model.engine"))
 
-    def test_create_detector_uses_resolved_artifact_and_labels(self):
+    def test_create_detector_uses_resolved_artifact_and_classes(self):
         config = make_config(
             runtime="tensorrt",
             model_file="model.pt",
@@ -93,7 +93,8 @@ class TestDetectorFactory(unittest.TestCase):
 
         with (
             patch(
-                "yolo_frigate.detector_factory.parse_labels", return_value={0: "person"}
+                "yolo_frigate.detector_factory.parse_classes",
+                return_value=["person", "package"],
             ),
             patch("yolo_frigate.detector_factory.UltralyticsDetector") as detector_cls,
         ):
@@ -103,10 +104,11 @@ class TestDetectorFactory(unittest.TestCase):
         detector_cls.assert_called_once_with(
             "/cache/model.engine",
             "tensorrt",
-            {0: "person"},
+            ["person", "package"],
             0.25,
             0.45,
             "gpu:1",
         )
         self.assertEqual(manager.calls[0][1], "tensorrt")
+        self.assertEqual(manager.calls[0][2], ["person", "package"])
         self.assertIs(detector, detector_cls.return_value)

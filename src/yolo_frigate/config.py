@@ -53,7 +53,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--label_file",
         type=str,
         default=None,
-        help="Optional path to the label file. Overrides embedded model labels.",
+        help="Optional path to the YOLOE class vocabulary file. Entries are passed to set_classes() before export.",
     )
     parser.add_argument(
         "--model_file",

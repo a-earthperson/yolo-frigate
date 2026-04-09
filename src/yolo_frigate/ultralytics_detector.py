@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from yolo_frigate.prediction import Prediction, Predictions
-from yolo_frigate.ultralytics_support import import_ultralytics_yolo
+from yolo_frigate.ultralytics_support import import_ultralytics_yoloe
 
 
 class UltralyticsDetector:
@@ -14,20 +14,21 @@ class UltralyticsDetector:
         self,
         model: str,
         runtime: str,
-        labels: dict[int, str] | None = None,
+        class_names: list[str] | None = None,
         conf: float = 0.25,
         iou: float = 0.45,
         device: str = "cpu",
     ):
         self.model_path = model
         self.runtime = runtime
-        self.labels = labels
+        self.class_names = class_names
         self.conf = conf
         self.iou = iou
         self.requested_device = device
 
         self._validate_runtime_device()
-        self.model = import_ultralytics_yolo()(model)
+        self.model = import_ultralytics_yoloe()(model)
+        self.model.val()
 
     def detect(self, img: np.ndarray) -> Predictions:
         predict_kwargs = {
@@ -71,7 +72,7 @@ class UltralyticsDetector:
         xyxy = _to_list(getattr(boxes, "xyxy", []))
         class_ids = _to_list(getattr(boxes, "cls", []))
         confidences = _to_list(getattr(boxes, "conf", []))
-        names = self.labels or getattr(result, "names", {}) or {}
+        names = _class_names_to_map(self.class_names) or getattr(result, "names", {}) or {}
 
         predictions = []
         for coordinates, class_id, confidence in zip(xyxy, class_ids, confidences):
@@ -95,6 +96,12 @@ def _to_list(value: Any) -> list[Any]:
     if hasattr(value, "tolist"):
         return value.tolist()
     return list(value)
+
+
+def _class_names_to_map(class_names: list[str] | None) -> dict[int, str]:
+    if class_names is None:
+        return {}
+    return {index: name for index, name in enumerate(class_names)}
 
 
 def _normalize_onnx_predict_device(device: str) -> str:

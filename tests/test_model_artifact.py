@@ -39,14 +39,32 @@ def make_config(**overrides) -> AppConfig:
     return AppConfig(**values)
 
 
-class FakeYOLO:
+class FakeYOLOE:
     export_calls = []
+    set_classes_calls = []
+    init_calls = []
+    val_calls = []
+    download_dir = None
 
     def __init__(self, model_file):
         self.model_file = model_file
+        FakeYOLOE.init_calls.append(model_file)
+        source_path = Path(model_file)
+        if source_path.is_file():
+            self.ckpt_path = str(source_path)
+        elif FakeYOLOE.download_dir is not None:
+            downloaded = Path(FakeYOLOE.download_dir) / source_path.name
+            downloaded.parent.mkdir(parents=True, exist_ok=True)
+            downloaded.write_bytes(b"downloaded-weights")
+            self.ckpt_path = str(downloaded)
+        else:
+            self.ckpt_path = str(source_path)
+
+    def set_classes(self, classes):
+        FakeYOLOE.set_classes_calls.append((self.model_file, list(classes)))
 
     def export(self, **kwargs):
-        FakeYOLO.export_calls.append((self.model_file, kwargs))
+        FakeYOLOE.export_calls.append((self.model_file, kwargs))
         source_path = Path(self.model_file)
         parent = source_path.parent
         stem = source_path.stem
@@ -70,10 +88,18 @@ class FakeYOLO:
             artifact.write_text("tflite", encoding="utf-8")
         return str(artifact)
 
+    def val(self):
+        FakeYOLOE.val_calls.append(self.model_file)
+        return object()
+
 
 class TestModelArtifactManager(unittest.TestCase):
     def tearDown(self):
-        FakeYOLO.export_calls.clear()
+        FakeYOLOE.export_calls.clear()
+        FakeYOLOE.set_classes_calls.clear()
+        FakeYOLOE.init_calls.clear()
+        FakeYOLOE.val_calls.clear()
+        FakeYOLOE.download_dir = None
 
     def test_checkpoint_export_is_cached_lazily(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -87,18 +113,27 @@ class TestModelArtifactManager(unittest.TestCase):
             )
             manager = ModelArtifactManager()
             ultralytics_module = types.SimpleNamespace(
-                YOLO=FakeYOLO, __version__="8.3.0"
+                YOLOE=FakeYOLOE, __version__="8.3.0"
             )
 
             with unittest.mock.patch.dict(
                 sys.modules, {"ultralytics": ultralytics_module}
             ):
-                first = manager.resolve(config, resolve_runtime_profile(config))
-                second = manager.resolve(config, resolve_runtime_profile(config))
+                first = manager.resolve(
+                    config, resolve_runtime_profile(config), ["person", "package"]
+                )
+                second = manager.resolve(
+                    config, resolve_runtime_profile(config), ["person", "package"]
+                )
                 self.assertTrue(first.cached)
                 self.assertTrue(Path(first.path).is_file())
                 self.assertEqual(first.path, second.path)
-                self.assertEqual(len(FakeYOLO.export_calls), 1)
+                self.assertEqual(len(FakeYOLOE.export_calls), 1)
+                self.assertEqual(
+                    FakeYOLOE.set_classes_calls,
+                    [(str(Path(first.path).parents[0] / "model.pt"), ["person", "package"])],
+                )
+                self.assertEqual(FakeYOLOE.val_calls, [])
                 self.assertTrue(
                     (Path(first.path).parents[1] / "manifest.json").is_file()
                 )
@@ -110,7 +145,7 @@ class TestModelArtifactManager(unittest.TestCase):
             cache_dir = Path(tmpdir) / "cache"
             manager = ModelArtifactManager()
             ultralytics_module = types.SimpleNamespace(
-                YOLO=FakeYOLO, __version__="8.3.0"
+                YOLOE=FakeYOLOE, __version__="8.3.0"
             )
 
             with unittest.mock.patch.dict(
@@ -124,6 +159,7 @@ class TestModelArtifactManager(unittest.TestCase):
                         export_half=False,
                     ),
                     RuntimeProfile("tensorrt", "engine"),
+                    ["person"],
                 )
                 fp16 = manager.resolve(
                     make_config(
@@ -133,10 +169,125 @@ class TestModelArtifactManager(unittest.TestCase):
                         export_half=True,
                     ),
                     RuntimeProfile("tensorrt", "engine"),
+                    ["person"],
                 )
 
         self.assertNotEqual(fp32.path, fp16.path)
-        self.assertEqual(len(FakeYOLO.export_calls), 2)
+        self.assertEqual(len(FakeYOLOE.export_calls), 2)
+
+    def test_cache_key_changes_when_class_names_change(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_path = Path(tmpdir) / "model.pt"
+            model_path.write_bytes(b"weights")
+            cache_dir = Path(tmpdir) / "cache"
+            manager = ModelArtifactManager()
+            ultralytics_module = types.SimpleNamespace(
+                YOLOE=FakeYOLOE, __version__="8.3.0"
+            )
+
+            with unittest.mock.patch.dict(
+                sys.modules, {"ultralytics": ultralytics_module}
+            ):
+                first = manager.resolve(
+                    make_config(
+                        runtime="tensorrt",
+                        model_file=str(model_path),
+                        model_cache_dir=str(cache_dir),
+                    ),
+                    RuntimeProfile("tensorrt", "engine"),
+                    ["person"],
+                )
+                second = manager.resolve(
+                    make_config(
+                        runtime="tensorrt",
+                        model_file=str(model_path),
+                        model_cache_dir=str(cache_dir),
+                    ),
+                    RuntimeProfile("tensorrt", "engine"),
+                    ["package"],
+                )
+
+        self.assertNotEqual(first.path, second.path)
+        self.assertEqual(len(FakeYOLOE.export_calls), 2)
+
+    def test_named_checkpoint_is_downloaded_via_ultralytics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "cache"
+            download_dir = Path(tmpdir) / "downloads"
+            manager = ModelArtifactManager()
+            ultralytics_module = types.SimpleNamespace(
+                YOLOE=FakeYOLOE, __version__="8.3.0"
+            )
+            FakeYOLOE.download_dir = download_dir
+
+            with unittest.mock.patch.dict(
+                sys.modules, {"ultralytics": ultralytics_module}
+            ):
+                resolved = manager.resolve(
+                    make_config(
+                        runtime="tensorrt",
+                        model_file="yoloe-26l-seg.pt",
+                        model_cache_dir=str(cache_dir),
+                    ),
+                    RuntimeProfile("tensorrt", "engine"),
+                    ["package"],
+                )
+                self.assertTrue(Path(resolved.path).is_file())
+                self.assertTrue((download_dir / "yoloe-26l-seg.pt").is_file())
+                self.assertEqual(FakeYOLOE.val_calls, [])
+
+        self.assertEqual(FakeYOLOE.init_calls[0], "yoloe-26l-seg.pt")
+        self.assertEqual(Path(FakeYOLOE.export_calls[0][0]).name, "yoloe-26l-seg.pt")
+
+    def test_cache_key_changes_when_gpu_model_changes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_path = Path(tmpdir) / "model.pt"
+            model_path.write_bytes(b"weights")
+            cache_dir = Path(tmpdir) / "cache"
+            manager = ModelArtifactManager()
+            ultralytics_module = types.SimpleNamespace(
+                YOLOE=FakeYOLOE, __version__="8.3.0"
+            )
+
+            with (
+                unittest.mock.patch.dict(
+                    sys.modules, {"ultralytics": ultralytics_module}
+                ),
+                unittest.mock.patch(
+                    "yolo_frigate.model_artifact._resolve_gpu_identity",
+                    side_effect=[
+                        {
+                            "name": "NVIDIA GeForce RTX 3090",
+                            "compute_capability": "8.6",
+                        },
+                        {
+                            "name": "NVIDIA GeForce RTX 4090",
+                            "compute_capability": "8.9",
+                        },
+                    ],
+                ),
+            ):
+                first = manager.resolve(
+                    make_config(
+                        runtime="tensorrt",
+                        model_file=str(model_path),
+                        model_cache_dir=str(cache_dir),
+                    ),
+                    RuntimeProfile("tensorrt", "engine"),
+                    ["person"],
+                )
+                second = manager.resolve(
+                    make_config(
+                        runtime="tensorrt",
+                        model_file=str(model_path),
+                        model_cache_dir=str(cache_dir),
+                    ),
+                    RuntimeProfile("tensorrt", "engine"),
+                    ["person"],
+                )
+
+        self.assertNotEqual(first.path, second.path)
+        self.assertEqual(len(FakeYOLOE.export_calls), 2)
 
     def test_int8_requires_calibration_dataset(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -150,7 +301,7 @@ class TestModelArtifactManager(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 ModelArtifactManager().resolve(
-                    config, RuntimeProfile("tensorrt", "engine")
+                    config, RuntimeProfile("tensorrt", "engine"), ["person"]
                 )
 
     def test_onnx_export_accepts_cpu_device(self):
@@ -166,16 +317,18 @@ class TestModelArtifactManager(unittest.TestCase):
             )
             manager = ModelArtifactManager()
             ultralytics_module = types.SimpleNamespace(
-                YOLO=FakeYOLO, __version__="8.3.0"
+                YOLOE=FakeYOLOE, __version__="8.3.0"
             )
 
             with unittest.mock.patch.dict(
                 sys.modules, {"ultralytics": ultralytics_module}
             ):
-                resolved = manager.resolve(config, RuntimeProfile("onnx", "onnx"))
+                resolved = manager.resolve(
+                    config, RuntimeProfile("onnx", "onnx"), ["person"]
+                )
 
         self.assertTrue(str(resolved.path).endswith(".onnx"))
-        self.assertEqual(FakeYOLO.export_calls[-1][1]["device"], "cpu")
+        self.assertEqual(FakeYOLOE.export_calls[-1][1]["device"], "cpu")
 
     def test_openvino_directory_artifact_is_passed_through(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -188,7 +341,7 @@ class TestModelArtifactManager(unittest.TestCase):
             )
 
             resolved = ModelArtifactManager().resolve(
-                config, RuntimeProfile("openvino", "openvino")
+                config, RuntimeProfile("openvino", "openvino"), ["person"]
             )
 
         self.assertFalse(resolved.cached)
@@ -201,7 +354,7 @@ class TestModelArtifactManager(unittest.TestCase):
             cache_dir = Path(tmpdir) / "cache"
             manager = ModelArtifactManager()
             ultralytics_module = types.SimpleNamespace(
-                YOLO=FakeYOLO, __version__="8.3.0"
+                YOLOE=FakeYOLOE, __version__="8.3.0"
             )
 
             with unittest.mock.patch.dict(
@@ -215,6 +368,7 @@ class TestModelArtifactManager(unittest.TestCase):
                         model_cache_dir=str(cache_dir),
                     ),
                     RuntimeProfile("tflite", "tflite"),
+                    ["person"],
                 )
                 edgetpu = manager.resolve(
                     make_config(
@@ -224,6 +378,7 @@ class TestModelArtifactManager(unittest.TestCase):
                         model_cache_dir=str(cache_dir),
                     ),
                     RuntimeProfile("edgetpu", "edgetpu"),
+                    ["person"],
                 )
 
         self.assertTrue(tflite.path.endswith(".tflite"))
