@@ -10,6 +10,7 @@ ENV UV_CACHE_DIR=/root/.cache/uv
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    git \
     libgl1 \
     libglib2.0-0 \
     libx11-6 \
@@ -25,7 +26,10 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
-    uv sync --frozen --no-dev --no-editable --extra onnx-gpu
+    uv sync --frozen --no-dev --no-editable --extra onnx-gpu && \
+    uv pip install \
+    --python "/app/.venv/bin/python" \
+    "git+https://github.com/ultralytics/CLIP.git"
 
 FROM ${PYTHON_IMAGE} AS yolo-frigate-onnx-gpu
 

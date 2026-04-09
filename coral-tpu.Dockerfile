@@ -5,7 +5,7 @@ ARG LIBEDGETPU_VERSION1="16.0"
 ARG LIBEDGETPU_VERSION2="2.17.1-1"
 ARG LIBEDGETPU_RELEASE_URL="https://github.com/feranick/libedgetpu/releases/download/${LIBEDGETPU_VERSION1}TF${LIBEDGETPU_VERSION2}/libedgetpu1-max_${LIBEDGETPU_VERSION1}tf${LIBEDGETPU_VERSION2}.${DEBIAN_VERSION}_${CPU_ARCHITECTURE}.deb"
 
-RUN apt-get update && apt-get install -y --no-install-recommends libusb-1.0-0 curl gnupg libgl1 libglib2.0-0 \
+RUN apt-get update && apt-get install -y --no-install-recommends libusb-1.0-0 curl git gnupg libgl1 libglib2.0-0 \
     && curl ${LIBEDGETPU_RELEASE_URL} --output /tmp/libedgetpu.deb -L --fail \
     && echo "yes" | dpkg -i /tmp/libedgetpu.deb \
     && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg \
@@ -33,7 +33,8 @@ COPY pyproject.toml uv.lock ./
 COPY src ./src
 
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
-    uv pip install --system ".[tflite]"
+    uv pip install --system ".[tflite]" && \
+    uv pip install --system "git+https://github.com/ultralytics/CLIP.git"
 
 COPY labelmap.txt /models/
 EXPOSE 8000

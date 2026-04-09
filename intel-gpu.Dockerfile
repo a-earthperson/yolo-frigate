@@ -126,6 +126,9 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv sync --frozen --no-dev --no-editable --extra openvino && \
     uv pip install \
     --python /app/.venv/bin/python \
+    "git+https://github.com/ultralytics/CLIP.git" && \
+    uv pip install \
+    --python /app/.venv/bin/python \
     --reinstall-package torch \
     --reinstall-package torchvision \
     --torch-backend cpu \
