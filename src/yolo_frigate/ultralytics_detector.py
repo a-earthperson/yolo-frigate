@@ -28,7 +28,6 @@ class UltralyticsDetector:
 
         self._validate_runtime_device()
         self.model = import_ultralytics_yoloe()(model)
-        self.model.val()
 
     def detect(self, img: np.ndarray) -> Predictions:
         predict_kwargs = {

@@ -27,12 +27,7 @@ class FakeYOLOE:
     def __init__(self, model_file):
         self.model_file = model_file
         self.predict_calls = []
-        self.val_calls = 0
         FakeYOLOE.instances.append(self)
-
-    def val(self):
-        self.val_calls += 1
-        return object()
 
     def predict(self, **kwargs):
         self.predict_calls.append(kwargs)
@@ -59,7 +54,6 @@ class TestUltralyticsDetector(unittest.TestCase):
         self.assertEqual(FakeYOLOE.instances[0].predict_calls[0]["device"], "1")
         self.assertAlmostEqual(FakeYOLOE.instances[0].predict_calls[0]["conf"], 0.4)
         self.assertAlmostEqual(FakeYOLOE.instances[0].predict_calls[0]["iou"], 0.5)
-        self.assertEqual(FakeYOLOE.instances[0].val_calls, 1)
         self.assertEqual(len(predictions.predictions), 1)
         self.assertEqual(predictions.predictions[0].label, "dog")
         self.assertAlmostEqual(predictions.predictions[0].confidence, 0.85, places=6)
