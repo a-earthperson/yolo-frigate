@@ -294,20 +294,79 @@ class TestModelArtifactManager(unittest.TestCase):
         self.assertNotEqual(first.path, second.path)
         self.assertEqual(len(FakeYOLOE.export_calls), 2)
 
-    def test_int8_requires_calibration_dataset(self):
+    def test_int8_without_export_data_bootstraps_open_images_dataset(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             model_path = Path(tmpdir) / "model.pt"
             model_path.write_bytes(b"weights")
+            cache_dir = Path(tmpdir) / "cache"
             config = make_config(
                 runtime="tensorrt",
                 model_file=str(model_path),
+                model_cache_dir=str(cache_dir),
                 export_int8=True,
             )
+            manager = ModelArtifactManager()
+            ultralytics_module = types.SimpleNamespace(
+                YOLOE=FakeYOLOE, __version__="8.3.0"
+            )
+            calibration_yaml = Path(tmpdir) / "datasets" / "open-images-v7" / "data.yaml"
 
-            with self.assertRaises(ValueError):
-                ModelArtifactManager().resolve(
+            with (
+                unittest.mock.patch.dict(
+                    sys.modules, {"ultralytics": ultralytics_module}
+                ),
+                unittest.mock.patch(
+                    "yolo_frigate.model_artifact.ensure_open_images_v7_validation_dataset",
+                    return_value=calibration_yaml,
+                ) as ensure_dataset,
+            ):
+                resolved = manager.resolve(
                     config, RuntimeProfile("tensorrt", "engine"), ["person"]
                 )
+                self.assertTrue(Path(resolved.path).is_file())
+
+        ensure_dataset.assert_called_once_with(cache_dir, ["person"])
+        self.assertEqual(
+            FakeYOLOE.export_calls[-1][1]["data"],
+            str(calibration_yaml),
+        )
+        self.assertEqual(FakeYOLOE.export_calls[-1][1]["fraction"], 1.0)
+
+    def test_explicit_export_data_bypasses_open_images_bootstrap(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_path = Path(tmpdir) / "model.pt"
+            model_path.write_bytes(b"weights")
+            cache_dir = Path(tmpdir) / "cache"
+            config = make_config(
+                runtime="tensorrt",
+                model_file=str(model_path),
+                model_cache_dir=str(cache_dir),
+                export_int8=True,
+                export_data="/models/custom-data.yaml",
+            )
+            manager = ModelArtifactManager()
+            ultralytics_module = types.SimpleNamespace(
+                YOLOE=FakeYOLOE, __version__="8.3.0"
+            )
+
+            with (
+                unittest.mock.patch.dict(
+                    sys.modules, {"ultralytics": ultralytics_module}
+                ),
+                unittest.mock.patch(
+                    "yolo_frigate.model_artifact.ensure_open_images_v7_validation_dataset"
+                ) as ensure_dataset,
+            ):
+                resolved = manager.resolve(
+                    config, RuntimeProfile("tensorrt", "engine"), ["person"]
+                )
+                self.assertTrue(Path(resolved.path).is_file())
+
+        ensure_dataset.assert_not_called()
+        self.assertEqual(
+            FakeYOLOE.export_calls[-1][1]["data"],
+            "/models/custom-data.yaml",
+        )
 
     def test_onnx_export_accepts_cpu_device(self):
         with tempfile.TemporaryDirectory() as tmpdir:

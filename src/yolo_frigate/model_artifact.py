@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from yolo_frigate.calibration_dataset import ensure_open_images_v7_validation_dataset
 from yolo_frigate.config import AppConfig
 from yolo_frigate.runtime_profile import (
     ModelSource,
@@ -77,6 +78,9 @@ class ModelArtifactManager:
         self._validate_export_config(config, runtime_profile)
 
         source_path = self._resolve_checkpoint_source(source)
+        export_data = self._resolve_export_data(
+            config, runtime_profile, class_names
+        )
 
         resolved_source = ModelSource(
             path=source_path,
@@ -84,7 +88,7 @@ class ModelArtifactManager:
         )
         resolved_class_names = tuple(class_names or ())
         source_sha256 = _sha256_file(source_path)
-        export_args = self._build_export_args(config, runtime_profile)
+        export_args = self._build_export_args(config, runtime_profile, export_data)
         hardware = self._hardware_fingerprint(runtime_profile.name, config.device)
         payload = {
             "source_sha256": source_sha256,
@@ -212,13 +216,12 @@ class ModelArtifactManager:
             raise ValueError(
                 "EdgeTPU export requires an x86 Linux-compatible environment."
             )
-        if config.export_int8 and config.export_data is None:
-            raise ValueError(
-                "--export_data is required when --export_int8 is enabled so calibration is deterministic."
-            )
 
     def _build_export_args(
-        self, config: AppConfig, runtime_profile: RuntimeProfile
+        self,
+        config: AppConfig,
+        runtime_profile: RuntimeProfile,
+        export_data: str | None,
     ) -> dict[str, Any]:
         args: dict[str, Any] = {
             "format": runtime_profile.export_format,
@@ -245,11 +248,34 @@ class ModelArtifactManager:
                 args["device"] = _normalize_tensorrt_export_device(config.device)
         if runtime_profile.name in {"openvino", "tflite", "edgetpu"}:
             args["device"] = "cpu"
-        if config.export_data is not None:
-            args["data"] = config.export_data
+        if export_data is not None:
+            args["data"] = export_data
         if config.export_int8:
             args["fraction"] = config.export_fraction
         return args
+
+    def _resolve_export_data(
+        self,
+        config: AppConfig,
+        runtime_profile: RuntimeProfile,
+        class_names: list[str] | None,
+    ) -> str | None:
+        if config.export_data is not None:
+            return config.export_data
+        if not config.export_int8:
+            return None
+        if runtime_profile.name not in {"tensorrt", "openvino", "tflite"}:
+            raise ValueError(
+                "--export_data is required when --export_int8 is enabled for "
+                f"runtime '{runtime_profile.name}'. Automatic Open Images V7 "
+                "calibration bootstrap is only available for TensorRT, OpenVINO, and TFLite."
+            )
+        return str(
+            ensure_open_images_v7_validation_dataset(
+                Path(config.model_cache_dir),
+                class_names,
+            )
+        )
 
     def _hardware_fingerprint(self, runtime: str, device: str) -> dict[str, str | None]:
         gpu_identity = _resolve_gpu_identity(device)

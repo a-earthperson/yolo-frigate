@@ -115,7 +115,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--export_data",
         type=str,
         default=None,
-        help="Dataset config used for quantization calibration.",
+        help="Dataset config used for quantization calibration. When omitted for supported INT8 exports, yolo-frigate bootstraps a cached Open Images V7 validation subset derived from the label map.",
     )
     parser.add_argument(
         "--export_fraction",
