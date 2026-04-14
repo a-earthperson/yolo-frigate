@@ -56,10 +56,13 @@ def create_app(detector: DetectorBackend, prediction_saver: PredictionSaver) -> 
             raise HTTPException(status_code=400, detail="Invalid image format")
 
         predictions = detector.detect(img)
-        detected_labels = ", ".join(
-            f"{prediction.label} ({prediction.confidence:.3f})"
-            for prediction in predictions.predictions
-        ) or "none"
+        detected_labels = (
+            ", ".join(
+                f"{prediction.label} ({prediction.confidence:.3f})"
+                for prediction in predictions.predictions
+            )
+            or "none"
+        )
         logger.debug(
             "Detection completed. Found %s objects: %s",
             len(predictions.predictions),
