@@ -10,7 +10,7 @@ from yolo_frigate.prediction import Prediction, Predictions
 
 
 class FakeDetector:
-    def detect(self, img: np.ndarray) -> Predictions:
+    async def detect(self, img: np.ndarray) -> Predictions:
         return Predictions(
             predictions=[
                 Prediction(

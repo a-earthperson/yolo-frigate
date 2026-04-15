@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -28,8 +29,9 @@ class UltralyticsDetector:
 
         self._validate_runtime_device()
         self.model = import_ultralytics_yoloe()(model)
+        self._predict_lock = asyncio.Lock()
 
-    def detect(self, img: np.ndarray) -> Predictions:
+    async def detect(self, img: np.ndarray) -> Predictions:
         predict_kwargs = {
             "source": img,
             "verbose": False,
@@ -40,7 +42,10 @@ class UltralyticsDetector:
         if predict_device is not None:
             predict_kwargs["device"] = predict_device
 
-        results = self.model.predict(**predict_kwargs)
+        # Ultralytics inference is a blocking call; run it off the event loop and
+        # serialize access to the shared model instance until native async backends land.
+        async with self._predict_lock:
+            results = await asyncio.to_thread(self.model.predict, **predict_kwargs)
         if not results:
             return Predictions(predictions=[], success=True)
         return self._result_to_predictions(results[0])

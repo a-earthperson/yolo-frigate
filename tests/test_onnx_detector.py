@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import types
 import unittest
@@ -48,7 +49,9 @@ class TestUltralyticsDetector(unittest.TestCase):
                 iou=0.5,
                 device="gpu:1",
             )
-            predictions = detector.detect(np.zeros((8, 8, 3), dtype=np.uint8))
+            predictions = asyncio.run(
+                detector.detect(np.zeros((8, 8, 3), dtype=np.uint8))
+            )
 
         self.assertEqual(FakeYOLOE.instances[0].model_file, "model.engine")
         self.assertEqual(FakeYOLOE.instances[0].predict_calls[0]["device"], "1")
@@ -72,7 +75,9 @@ class TestUltralyticsDetector(unittest.TestCase):
                 class_names=["person", "vehicle"],
                 device="cpu",
             )
-            predictions = detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
+            predictions = asyncio.run(
+                detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
+            )
 
         self.assertNotIn("device", FakeYOLOE.instances[0].predict_calls[0])
         self.assertEqual(predictions.predictions[0].label, "vehicle")
@@ -85,7 +90,7 @@ class TestUltralyticsDetector(unittest.TestCase):
                 runtime="openvino",
                 device="gpu:2",
             )
-            detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
+            asyncio.run(detector.detect(np.zeros((4, 4, 3), dtype=np.uint8)))
 
         self.assertEqual(FakeYOLOE.instances[0].predict_calls[0]["device"], "intel:gpu")
 
@@ -97,7 +102,7 @@ class TestUltralyticsDetector(unittest.TestCase):
                 runtime="openvino",
                 device="cpu",
             )
-            detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
+            asyncio.run(detector.detect(np.zeros((4, 4, 3), dtype=np.uint8)))
 
         self.assertEqual(FakeYOLOE.instances[0].predict_calls[0]["device"], "intel:cpu")
 
@@ -109,7 +114,7 @@ class TestUltralyticsDetector(unittest.TestCase):
                 runtime="tflite",
                 device="cpu",
             )
-            detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
+            asyncio.run(detector.detect(np.zeros((4, 4, 3), dtype=np.uint8)))
 
         self.assertNotIn("device", FakeYOLOE.instances[0].predict_calls[0])
 
@@ -127,7 +132,7 @@ class TestUltralyticsDetector(unittest.TestCase):
                 runtime="onnx",
                 device="gpu:2",
             )
-            detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
+            asyncio.run(detector.detect(np.zeros((4, 4, 3), dtype=np.uint8)))
 
         self.assertEqual(FakeYOLOE.instances[0].predict_calls[0]["device"], "2")
 
@@ -139,7 +144,7 @@ class TestUltralyticsDetector(unittest.TestCase):
                 runtime="onnx",
                 device="cpu",
             )
-            detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
+            asyncio.run(detector.detect(np.zeros((4, 4, 3), dtype=np.uint8)))
 
         self.assertEqual(FakeYOLOE.instances[0].predict_calls[0]["device"], "cpu")
 
@@ -152,4 +157,24 @@ class TestUltralyticsDetector(unittest.TestCase):
                 device="usb",
             )
             with self.assertRaises(ValueError):
-                detector.detect(np.zeros((4, 4, 3), dtype=np.uint8))
+                asyncio.run(detector.detect(np.zeros((4, 4, 3), dtype=np.uint8)))
+
+    def test_detect_offloads_blocking_predict_call(self):
+        ultralytics_module = types.SimpleNamespace(YOLOE=FakeYOLOE)
+        with unittest.mock.patch.dict(sys.modules, {"ultralytics": ultralytics_module}):
+            detector = UltralyticsDetector(
+                "model.engine",
+                runtime="tensorrt",
+                device="gpu:0",
+            )
+
+            async def fake_to_thread(func, *args, **kwargs):
+                return func(*args, **kwargs)
+
+            with unittest.mock.patch(
+                "yolo_frigate.ultralytics_detector.asyncio.to_thread",
+                side_effect=fake_to_thread,
+            ) as to_thread:
+                asyncio.run(detector.detect(np.zeros((4, 4, 3), dtype=np.uint8)))
+
+        to_thread.assert_called_once()

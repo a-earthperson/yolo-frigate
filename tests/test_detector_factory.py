@@ -113,3 +113,40 @@ class TestDetectorFactory(unittest.TestCase):
         self.assertEqual(manager.calls[0][1], "tensorrt")
         self.assertEqual(manager.calls[0][2], ["person", "package"])
         self.assertIs(detector, detector_cls.return_value)
+
+    def test_create_detector_uses_native_openvino_backend(self):
+        config = make_config(
+            runtime="openvino",
+            model_file="model.pt",
+            label_file="labels.yaml",
+            device="gpu:0",
+        )
+        manager = FakeArtifactManager(
+            ResolvedModelArtifact(
+                path="/cache/model_openvino_model",
+                cached=True,
+            )
+        )
+
+        with (
+            patch(
+                "yolo_frigate.detector_factory.parse_classes",
+                return_value=["person", "package"],
+            ),
+            patch(
+                "yolo_frigate.detector_factory.OpenVINOAsyncDetector"
+            ) as detector_cls,
+        ):
+            detector_cls.return_value = object()
+            detector = create_detector(config, artifact_manager=manager)
+
+        detector_cls.assert_called_once_with(
+            "/cache/model_openvino_model",
+            ["person", "package"],
+            0.25,
+            0.45,
+            "gpu:0",
+        )
+        self.assertEqual(manager.calls[0][1], "openvino")
+        self.assertEqual(manager.calls[0][2], ["person", "package"])
+        self.assertIs(detector, detector_cls.return_value)

@@ -4,6 +4,7 @@ from yolo_frigate.config import AppConfig
 from yolo_frigate.detector_backend import DetectorBackend
 from yolo_frigate.label import parse_classes
 from yolo_frigate.model_artifact import ModelArtifactManager
+from yolo_frigate.openvino_detector import OpenVINOAsyncDetector
 from yolo_frigate.runtime_profile import resolve_runtime_profile
 from yolo_frigate.ultralytics_detector import UltralyticsDetector
 
@@ -27,6 +28,15 @@ def create_detector(
     resolved_artifact = (artifact_manager or ModelArtifactManager()).resolve(
         config, runtime_profile, class_names
     )
+
+    if runtime_profile.name == "openvino":
+        return OpenVINOAsyncDetector(
+            resolved_artifact.path,
+            class_names,
+            config.confidence_threshold,
+            config.iou_threshold,
+            config.device,
+        )
 
     return UltralyticsDetector(
         resolved_artifact.path,

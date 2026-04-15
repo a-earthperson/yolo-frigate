@@ -57,7 +57,7 @@ def create_app(detector: DetectorBackend, prediction_saver: PredictionSaver) -> 
             logger.error("Failed to decode image.")
             raise HTTPException(status_code=400, detail="Invalid image format")
 
-        predictions = detector.detect(img)
+        predictions = await detector.detect(img)
         detected_labels = (
             ", ".join(
                 f"{prediction.label} ({prediction.confidence:.3f})"
