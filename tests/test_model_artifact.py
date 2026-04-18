@@ -313,6 +313,44 @@ class TestModelArtifactManager(unittest.TestCase):
         self.assertEqual(Path(FakeYOLOE.export_calls[0][0]).name, "yoloe-26l-seg-pf.pt")
         self.assertEqual(FakeYOLOE.set_classes_calls, [])
 
+    def test_named_yoloe26_checkpoint_with_label_map_stays_prompt_based(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "cache"
+            download_dir = Path(tmpdir) / "downloads"
+            manager = ModelArtifactManager()
+            ultralytics_module = types.SimpleNamespace(
+                YOLOE=FakeYOLOE, __version__="8.3.0"
+            )
+            FakeYOLOE.download_dir = download_dir
+
+            with unittest.mock.patch.dict(
+                sys.modules, {"ultralytics": ultralytics_module}
+            ):
+                resolved = manager.resolve(
+                    make_config(
+                        runtime="tensorrt",
+                        model_file="yoloe-26l-seg.pt",
+                        model_cache_dir=str(cache_dir),
+                    ),
+                    RuntimeProfile("tensorrt", "engine"),
+                    ["person", "package"],
+                )
+                self.assertTrue(Path(resolved.path).is_file())
+                self.assertTrue((download_dir / "yoloe-26l-seg.pt").is_file())
+                self.assertFalse((download_dir / "yoloe-26l-seg-pf.pt").exists())
+
+        self.assertEqual(FakeYOLOE.init_calls[0], "yoloe-26l-seg.pt")
+        self.assertEqual(
+            FakeYOLOE.set_classes_calls,
+            [
+                (
+                    str(Path(FakeYOLOE.export_calls[0][0])),
+                    ["person", "package"],
+                )
+            ],
+        )
+        self.assertEqual(Path(FakeYOLOE.export_calls[0][0]).name, "yoloe-26l-seg.pt")
+
     def test_cache_key_changes_when_gpu_model_changes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             model_path = Path(tmpdir) / "model.pt"
