@@ -41,18 +41,73 @@ def make_config(**overrides) -> AppConfig:
     return AppConfig(**values)
 
 
+class FakePromptEmbeddings:
+    def float(self):
+        return self
+
+    def squeeze(self, _dim):
+        return self
+
+
+class FakeEndToEndHead:
+    def __init__(self):
+        self.end2end = True
+        self.training = False
+        self.is_fused = False
+        self.cv2 = "one2many-box"
+        self.cv3 = "one2many-cls"
+        self.cv4 = "one2many-contrastive"
+        self.one2one_cv3 = "one2one-cls"
+        self.one2one_cv4 = "one2one-contrastive"
+        self.reprta = object()
+
+    def _fuse_tp(self, _txt_feats, cls_head, bn_head):
+        if bn_head is None:
+            raise TypeError("'NoneType' object is not iterable")
+        FakeYOLOE.head_fuse_calls.append((cls_head, bn_head))
+
+    def fuse(self, txt_feats=None):
+        if txt_feats is None:
+            self.cv2 = self.cv3 = self.cv4 = None
+            return
+        if self.is_fused:
+            return
+
+        txt_feats = txt_feats.float().squeeze(0)
+        self._fuse_tp(txt_feats, self.cv3, self.cv4)
+        if self.end2end:
+            self._fuse_tp(txt_feats, self.one2one_cv3, self.one2one_cv4)
+        self.reprta = object()
+        self.is_fused = True
+
+
+def _is_yoloe26_seg_checkpoint(name: str) -> bool:
+    lower_name = name.lower()
+    return (
+        lower_name.startswith("yoloe-26")
+        and "-seg" in lower_name
+        and "-pf" not in lower_name
+    )
+
+
 class FakeYOLOE:
     export_calls = []
     set_classes_calls = []
     init_calls = []
     val_calls = []
+    head_fuse_calls = []
     download_dir = None
+    simulate_end2end_prompt_export = False
 
     def __init__(self, model_file):
         self.model_file = model_file
         FakeYOLOE.init_calls.append(model_file)
         source_path = Path(model_file)
-        head = types.SimpleNamespace()
+        head = (
+            FakeEndToEndHead()
+            if _is_yoloe26_seg_checkpoint(source_path.name)
+            else types.SimpleNamespace()
+        )
         self.model = types.SimpleNamespace(model=[head])
         if source_path.name.endswith("-pf.pt"):
             head.lrpc = object()
@@ -69,12 +124,18 @@ class FakeYOLOE:
 
     def set_classes(self, classes):
         FakeYOLOE.set_classes_calls.append((self.model_file, list(classes)))
+        self.model.pe = FakePromptEmbeddings()
 
     def export(self, **kwargs):
         if Path(self.model_file).name.endswith("-pf.pt") and hasattr(self.model, "pe"):
             raise AssertionError(
                 "prompt-free exports must not re-fuse prompt embeddings"
             )
+        if FakeYOLOE.simulate_end2end_prompt_export and hasattr(self.model, "pe"):
+            head = self.model.model[-1]
+            if hasattr(head, "fuse"):
+                head.fuse()
+                head.fuse(self.model.pe)
         FakeYOLOE.export_calls.append((self.model_file, kwargs))
         source_path = Path(self.model_file)
         parent = source_path.parent
@@ -110,7 +171,9 @@ class TestModelArtifactManager(unittest.TestCase):
         FakeYOLOE.set_classes_calls.clear()
         FakeYOLOE.init_calls.clear()
         FakeYOLOE.val_calls.clear()
+        FakeYOLOE.head_fuse_calls.clear()
         FakeYOLOE.download_dir = None
+        FakeYOLOE.simulate_end2end_prompt_export = False
 
     def test_checkpoint_export_is_cached_lazily(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -348,6 +411,37 @@ class TestModelArtifactManager(unittest.TestCase):
                     ["person", "package"],
                 )
             ],
+        )
+        self.assertEqual(Path(FakeYOLOE.export_calls[0][0]).name, "yoloe-26l-seg.pt")
+
+    def test_named_yoloe26_checkpoint_survives_end2end_prompt_export_bug(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "cache"
+            download_dir = Path(tmpdir) / "downloads"
+            manager = ModelArtifactManager()
+            ultralytics_module = types.SimpleNamespace(
+                YOLOE=FakeYOLOE, __version__="8.3.0"
+            )
+            FakeYOLOE.download_dir = download_dir
+            FakeYOLOE.simulate_end2end_prompt_export = True
+
+            with unittest.mock.patch.dict(
+                sys.modules, {"ultralytics": ultralytics_module}
+            ):
+                resolved = manager.resolve(
+                    make_config(
+                        runtime="tensorrt",
+                        model_file="yoloe-26l-seg.pt",
+                        model_cache_dir=str(cache_dir),
+                    ),
+                    RuntimeProfile("tensorrt", "engine"),
+                    ["person", "package"],
+                )
+                self.assertTrue(Path(resolved.path).is_file())
+
+        self.assertEqual(
+            FakeYOLOE.head_fuse_calls,
+            [("one2one-cls", "one2one-contrastive")],
         )
         self.assertEqual(Path(FakeYOLOE.export_calls[0][0]).name, "yoloe-26l-seg.pt")
 

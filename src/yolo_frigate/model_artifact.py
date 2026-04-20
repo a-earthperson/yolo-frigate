@@ -189,7 +189,8 @@ class ModelArtifactManager:
             model.set_classes(list(request.class_names))
         elif _uses_prompt_free_head(model):
             _strip_prompt_embeddings(model)
-        model.export(**request.export_args)
+        with _patch_yoloe_end2end_export_fuse(model):
+            model.export(**request.export_args)
 
         artifact_path = self._find_export_artifact(request)
         if artifact_path is None:
@@ -358,6 +359,60 @@ def _resolve_yoloe_head(model: Any) -> Any | None:
         return layers[-1]
     except (IndexError, KeyError, TypeError):
         return None
+
+
+@contextmanager
+def _patch_yoloe_end2end_export_fuse(model: Any):
+    head = _resolve_yoloe_head(model)
+    inner_model = getattr(model, "model", None)
+    if (
+        head is None
+        or not getattr(head, "end2end", False)
+        or not hasattr(inner_model, "pe")
+        or not hasattr(head, "fuse")
+    ):
+        yield
+        return
+
+    head_cls = type(head)
+    original_fuse = head_cls.fuse
+
+    def patched_fuse(self, txt_feats=None):
+        if txt_feats is None:
+            return original_fuse(self, txt_feats)
+
+        if getattr(self, "is_fused", False):
+            return
+
+        if (
+            getattr(self, "cv3", None) is not None
+            and getattr(self, "cv4", None) is not None
+        ):
+            return original_fuse(self, txt_feats)
+
+        one2one_cv3 = getattr(self, "one2one_cv3", None)
+        one2one_cv4 = getattr(self, "one2one_cv4", None)
+        if one2one_cv3 is None or one2one_cv4 is None:
+            return original_fuse(self, txt_feats)
+
+        assert not self.training
+        txt_feats = txt_feats.float().squeeze(0)
+        self._fuse_tp(txt_feats, one2one_cv3, one2one_cv4)
+        if hasattr(self, "reprta"):
+            del self.reprta
+            try:
+                from torch import nn
+
+                self.reprta = nn.Identity()
+            except ImportError:
+                self.reprta = object()
+        self.is_fused = True
+
+    head_cls.fuse = patched_fuse
+    try:
+        yield
+    finally:
+        head_cls.fuse = original_fuse
 
 
 def _sha256_file(path: Path) -> str:

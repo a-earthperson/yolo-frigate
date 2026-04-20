@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yolo-frigate"
-version = "0.3.16"
+version = "0.3.17"
 description = "yolo-frigate: DeepStack-shaped REST API for YOLO object detection with lazy runtime-native export"
 readme = "README.md"
 requires-python = ">=3.11"
